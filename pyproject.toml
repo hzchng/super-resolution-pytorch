@@ -1,0 +1,22 @@
+[project]
+name = "super-resolution-pytorch"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "albumentations>=1.4.22",
+    "ipykernel>=6.29.5",
+    "kornia>=0.7.4",
+    "mlflow>=2.19.0",
+    "opencv-python>=4.10.0.84",
+    "pickleshare>=0.7.5",
+    "pillow>=11.0.0",
+    "scikit-image>=0.25.0",
+    "torch>=2.5.1",
+    "torchvision>=0.20.1",
+]
+
+
+[tool.uv]
+link-mode = "symlink"
