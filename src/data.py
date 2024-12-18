@@ -1,11 +1,12 @@
+import re
 from pathlib import Path
 
 from PIL import Image
 from torch import Tensor
 from torch.utils.data import Dataset
-from torchvision import transforms as T
+from torchvision.transforms import v2 as T
 
-from . import image
+from src.utils import UtilSRCNN, UtilSRGAN
 
 
 def get_images_files(path: Path, suffix: str = "", is_recursive: bool = False) -> list[Path]:
@@ -21,24 +22,32 @@ def get_images_files(path: Path, suffix: str = "", is_recursive: bool = False) -
 
 
 class SRCNNData(Dataset):
-    def __init__(self, root_dir: Path | str, transform=None):
+    def __init__(
+        self,
+        root_dir: Path | str,
+        transform=None,
+        scale: int = 2,
+        gaussian_radius: float = 2,
+    ):
         if isinstance(root_dir, str):
             root_dir = Path(root_dir)
 
         self.root_dir = root_dir
-        self.transform = transform
         self.files = get_images_files(
             root_dir,
             suffix=".png",
             is_recursive=True,
         )
+        self.transform = transform
+        self.scale = scale
+        self.gaussian_radius = gaussian_radius
 
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, index: int):
         img = Image.open(self.files[index])
-        lr_img, img = image.srcnn_img_preprocess(img)
+        lr_img, img = UtilSRCNN.downscale(img, self.scale, self.gaussian_radius)
 
         if self.transform:
             img = self.transform(img)
@@ -50,45 +59,34 @@ class SRCNNData(Dataset):
 class SRGANData(Dataset):
     def __init__(
         self,
-        image_path: Path,
+        root_dir: Path,
+        scale: int,
         hr_name: str,
-        lr_name: str,
-        hr_transform: T.Compose | None = None,
-        lr_transform: T.Compose | None = None,
+        init_transfrom: T.Compose | None,
+        hr_transform: T.Compose,
+        lr_transform: T.Compose,
+        gaussian_radius: float = 2,
     ):
         super().__init__()
 
-        if not hr_transform:
-            hr_transform = T.Compose(
-                [
-                    T.Resize((256, 256)),
-                    T.ToTensor(),
-                    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                ]
-            )
+        self.scale = scale
+        self.root_dir = root_dir
+        self.hr_files = get_images_files(root_dir / hr_name, suffix=".png", is_recursive=True)
 
-        if not lr_transform:
-            lr_transform = T.Compose(
-                [
-                    T.ToTensor(),
-                    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                ]
-            )
-
+        self.init_transfrom = init_transfrom
         self.hr_transform = hr_transform
         self.lr_transform = lr_transform
-
-        self.hr_images = get_images_files(image_path / hr_name)
-        self.lr_images = get_images_files(image_path / lr_name)
+        self.gaussian_radius = gaussian_radius
 
     def __len__(self):
-        return len(self.hr_images)
+        return len(self.hr_files)
 
     def __getitem__(self, idx) -> tuple[Tensor, Tensor]:
-        hr_image = Image.open(self.hr_images[idx])
-        lr_image = Image.open(self.lr_images[idx])
+        img = Image.open(self.hr_files[idx])
+        if self.init_transfrom:
+            img = self.init_transfrom(img)
+        lr_img = UtilSRGAN.downscale(img, self.scale, self.gaussian_radius)
 
-        hr_image = self.hr_transform(hr_image)
-        lr_image = self.lr_transform(lr_image)
-
-        return hr_image, lr_image
+        img = self.hr_transform(img)
+        lr_img = self.lr_transform(lr_img)
+        return lr_img, img
