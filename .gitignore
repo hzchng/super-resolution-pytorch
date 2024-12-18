@@ -164,5 +164,4 @@ cython_debug/
 
 data/**
 *.pt
-!best-srcnn-continue.pt
 uv.lock
