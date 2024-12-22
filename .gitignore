@@ -165,3 +165,7 @@ cython_debug/
 data/**
 *.pt
 uv.lock
+*.zip
+inference
+loss*png
+psnr*png
