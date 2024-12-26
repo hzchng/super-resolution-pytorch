@@ -6,13 +6,13 @@ from PIL import Image, ImageFilter
 from torch.utils.data import DataLoader
 from torchvision.transforms import v2 as T
 
-from src import loss, metrics
-from src.device import device
+from src import device, loss, metrics
 
 
 class UtilSRCNN:
     transforms = T.Compose(
         [
+            # T.GaussianBlur(kernel_size=5, sigma=(0.1, 3.0)),
             T.ToImage(),
             T.ToDtype(torch.float32, scale=True),
             # T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
@@ -38,11 +38,12 @@ class UtilSRCNN:
 
         srcnn.train()
         for lr, hr in loader:
-            lr = lr.to(device)
-            hr = hr.to(device)
+            lr = lr.to(device.type)
+            hr = hr.to(device.type)
 
-            pred_hr = srcnn(lr)
-            loss_score = loss.mse_loss(hr, pred_hr)
+            with torch.autocast(device_type=device.type.type, dtype=device.dtype):
+                pred_hr = srcnn(lr)
+                loss_score = loss.get_mse_loss(hr, pred_hr)
 
             optimizer.zero_grad()
             loss_score.backward()
@@ -65,13 +66,13 @@ class UtilSRCNN:
         psnr_arr = []
 
         srcnn.eval()
-        with torch.no_grad():
+        with torch.inference_mode(), torch.autocast(device_type=device.type.type, dtype=device.dtype):
             for lr, hr in loader:
-                lr = lr.to(device)
-                hr = hr.to(device)
+                lr = lr.to(device.type)
+                hr = hr.to(device.type)
 
-                pred_hr = srcnn(lr).detach()
-                loss_item = loss.mse_loss(hr, pred_hr)
+                pred_hr = srcnn(lr)
+                loss_item = loss.get_mse_loss(hr, pred_hr)
 
                 loss_arr.append(loss_item.item())
                 psnr_arr.append(loss.calculate_psnr(loss_item).item())
@@ -82,7 +83,7 @@ class UtilSRCNN:
         return mean_loss, mean_psnr
 
     @classmethod
-    def inference(
+    def inference_blurred(
         cls,
         srcnn: torch.nn.Module,
         img_path: Path,
@@ -90,15 +91,39 @@ class UtilSRCNN:
         srcnn.eval()
         img = Image.open(img_path)
         lr, hr = cls.downscale(img, scale=cls.scale, gaussian_radius=cls.gaussian_radius)
-        with torch.no_grad():
-            lr_t = cls.transforms(lr)
-            hr_t = cls.transforms(hr)
-            pred_hr = srcnn(lr_t.to(device)).detach()
-            mse_score = loss.mse_loss(hr_t.cuda(), pred_hr.cuda())
+        pred_hr, mse_score, psnr_score = cls._infer(srcnn, lr, hr)
+        return lr, hr, pred_hr, mse_score, psnr_score
+
+    @classmethod
+    def inference(
+        cls,
+        srcnn: torch.nn.Module,
+        img_path: Path,
+    ) -> torch.Tensor:
+        srcnn.eval()
+        img = Image.open(img_path)
+        pred_hr, mse_score, psnr_score = cls._infer(srcnn, img)
+        return img, pred_hr, mse_score, psnr_score
+
+    @classmethod
+    def _infer(
+        cls,
+        srcnn: torch.nn.Module,
+        lr_img: Image.Image,
+        hr_img: Image.Image | None = None,
+    ) -> torch.Tensor:
+        with torch.inference_mode(), torch.autocast(device_type=device.type.type, dtype=device.dtype):
+            base_img = cls.transforms(lr_img).to(device.type)
+            truth_img = base_img
+            if hr_img is not None:
+                truth_img = cls.transforms(lr_img).to(device.type)
+
+            pred_img = srcnn(base_img)
+            mse_score = loss.get_mse_loss(truth_img, pred_img)
             psnr_score = loss.calculate_psnr(mse_score)
             print(f"mse: {mse_score:.4f}, psnr: {psnr_score:.4f}")
 
-        return lr, hr, pred_hr
+        return pred_img, mse_score, psnr_score
 
     @staticmethod
     def downscale(img: Image.Image, scale: int, gaussian_radius: float = 0.55):

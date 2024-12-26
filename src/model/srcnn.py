@@ -39,4 +39,5 @@ class SRCNN(nn.Module):
     def forward(self, x):
         x = self.block_1(x)
         x = self.block_final(x)
+        x = x.clamp(min=0.0, max=1.0)
         return x
