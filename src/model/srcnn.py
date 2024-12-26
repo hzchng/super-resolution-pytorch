@@ -1,5 +1,5 @@
 # Paper: https://arxiv.org/pdf/1501.00092
-from torch import nn
+from torch import Tensor, nn
 
 
 class SRCNN(nn.Module):
@@ -36,7 +36,7 @@ class SRCNN(nn.Module):
             padding=f3 // 2,
         )
 
-    def forward(self, x):
+    def forward(self, x: Tensor):
         x = self.block_1(x)
         x = self.block_final(x)
         x = x.clamp(min=0.0, max=1.0)
